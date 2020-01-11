@@ -26,7 +26,7 @@ demig <- read_dta("demig.dta")
 demig <- as_factor(demig, levels = c("default", "labels", "values", "both"), ordered = FALSE)
 
 #Clean demig data for 1950-onwards US policy with assessable and applicable changes in restrictiveness
-demigUS1950 <- dplyr::filter(demig, demig$country == "United States of America", year >= 1950, change_restrict != "Non applicable" & change_restrict != "Cannot be assessed"  & change_level != "Non applicable" & change_level != "Cannot be assessed")
+demigUS1950 %>% dplyr::filter(demig, demig$country == "United States of America", year >= 1950, change_restrict != "Non applicable" & change_restrict != "Cannot be assessed"  & change_level != "Non applicable" & change_level != "Cannot be assessed")
 
 ```
 
@@ -136,7 +136,9 @@ key_change_restrict <- tibble(numeric_change_restrictive = c('Less restrictive',
 key_change_restrict
 
 #Create new variable, magnitude score -- the product of numeric change levels and restrictiveness
-demigUS1950 <- dplyr::mutate(dplyr::group_by(demigUS1950, year), mag_score = numeric_change_restrict * numeric_change_level)
+demigUS1950 <- demigUS1950 %>% 
+  group_by(year) %>%
+  dplyr::mutate(mag_score = numeric_change_restrict * numeric_change_level)
 
 #View demigUS1950, seeing how mag_score combines change_restrict and change_level information
 head(select(demigUS1950, year, mag_score, change_restrict, change_level))
@@ -242,7 +244,8 @@ ggplot(data=dplyr::filter(demigUS1950, pol_area != "Exit", target_group == "Skil
 ```{r Refugees particularly}
 
 #Exclude exit-related policies because too few
-demigUS1950_ref <- dplyr::filter(demigUS1950, pol_area != "Exit", target_group == "Refugees, asylum seekers and other vulnerable people")
+demigUS1950_ref <- demigUS1950 %>%
+  dplyr::filter(pol_area != "Exit", target_group == "Refugees, asylum seekers and other vulnerable people")
 
 #Plot magnitude scores of refugee migration policy through time
 ggplot(data = demigUS1950_ref, mapping = aes(x = year, y = mag_score)) +
@@ -273,7 +276,11 @@ ggplot(data = demigUS1950_ref, mapping = aes(x = year, y = mag_score)) +
 ```{r Mixture model}
 #trying to use mclust. ungrouping demigUS1950 from year
 
-refugee_mag_score <- select(dplyr::filter(ungroup(demigUS1950), target_group == "Refugees, asylum seekers and other vulnerable people"), mag_score)
+refugee_mag_score <- demigUS1950 %>%
+  ungroup() %>%
+  dplyr::filter(target_group == "Refugees, asylum seekers and other vulnerable people") %>%
+  select(mag_score)
+
 mod1 = Mclust(refugee_mag_score)
 summary(mod1)
 mod2 = Mclust(refugee_mag_score, G = 2, modelnames=c(V))
