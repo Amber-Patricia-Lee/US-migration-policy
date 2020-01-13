@@ -1,0 +1,405 @@
+---
+title: 'Exploratory Data Analysis of US Migration Policy'
+author: "Amber Lee"
+date: "August 2019"
+output: pdf_document
+---
+
+# Introduction
+
+This project examines the Determinants of Migration Policy (DEMIG), a data set that records over 6,500 migration policies enacted in 45 countries, including the United States. Researchers assessed each policy on 13 different variables like target group and change in restrictiveness. Policies included in DEMIG are from 1721 to 2013 at the national or international level. 
+
+This analysis was conducted from July to August 2019 as part of a policy internship at the organization [Only Through Us](https://www.onlythroughus.org/). This was a self-led project informed by [R for Data Science](https://r4ds.had.co.nz/) and [An Introduction to Statistical Learning](http://faculty.marshall.usc.edu/gareth-james/ISL/). 
+
+My guiding questions for this project are as follows:
+
+1. How has the restrictiveness of migration policy changed over time? 
+
+2. How does migration policy treat groups of migrants differently?
+
+## Setting up
+
+For this project, I use the haven, tidyverse, mclust, and knitr packages. 
+
+
+```{r setup, message = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(haven) # For reading stata file
+library(tidyverse) # Primarily for dplyr, ggplot, and pipe  %>% function
+library(mclust) # Gaussian finite mixture models
+library(kableExtra) #Table formatting
+library(knitr) 
+
+cbPalette <- c("#0072B2", "#D55E00", "#CC79A7", "#E69F00", "#56B4E9") #For ggplot
+```
+
+## About the dataset
+
+I am primarily interested by contemporary trends, so I limited the policies  in this exploratory data analysis to be from 1950 onward. The variables of interest in this project are explained as follows: 
+* change_restrict: Change in restrictiveness. This is a categorical measure of how a policy increases or decreases the rights of a migrant group, relative to the current legal framework. There are three levels: less restrictive (coded -1), no change in restrictiveness (coded 0), and more restrictive (coded +1).
+
+* pol_area: Policy area. This categorical variable has 4 levels: 1) Border patrol and land control: policies that regulate external and internal border controls and aim to secure national territory, 2) Legal entry and stay: policies that regulate entry visa and stay permits, without distinguishing temporary and long-term permits, 3) Integration: policies that regulate post-entry rights or affect integration, including state’s relations with citizens living abroad, 4) Exit: policies that regulate both forced and voluntary exit from a territory
+
+* target_group: Target group. This is a categorical variable that specifies the migrant group targeted by a policy. Examples of levels in target_group include All migrants, Refugees and Asylum Seekers, High-skilled workers, and Family Members. 
+
+* change_level: Level of change. This is a categorical variable that assesses whether a policy is a major change, mid-level change, minor change or fine-tuning change.
+
+```{r Read and clean data, echo = FALSE}
+
+#Create "demig" dataframe, a dataset recording global migration policies
+demig <- read_dta("demig.dta")
+
+#Convert haven labelled values to characters
+demig <- as_factor(demig, levels = c("default", "labels", "values", "both"), ordered = FALSE)
+
+#Clean demig data for 1950-onwards US policy with assessable and applicable changes in restrictiveness
+demigUS1950 <- dplyr::filter(demig, demig$country == "United States of America", year >= 1950, change_restrict != "Non applicable" & change_restrict != "Cannot be assessed"  & change_level != "Non applicable" & change_level != "Cannot be assessed")
+
+```
+
+# Initial descriptive results
+
+```{r Restrictiveness and policy area, echo = FALSE}
+
+#Plot restrictiveness levels , color-coded by policy area
+ggplot(data = demigUS1950) +
+  geom_bar(mapping = aes(x = change_restrict, fill = pol_area), position = "dodge") +
+  labs(
+    title = "Figure 1:\nRestrictiveness corresponds to different policy areas",
+    x = "Restrictiveness level",
+    y = "Policy count",
+    fill = "Policy area"
+  )
+
+#Create contingency table for different levels of restrictiveness and policy area
+restrictiveness_by_policy_area <- column_to_rownames(spread(tally(group_by(demigUS1950, pol_area, change_restrict)), key = change_restrict, value = n), var = "pol_area")
+
+#Reset grouping
+demigUS1950 <- ungroup(demigUS1950, pol_area)
+
+#Fill in empty values with 0
+restrictiveness_by_policy_area[is.na(restrictiveness_by_policy_area)] <- 0
+
+kable(restrictiveness_by_policy_area, caption = "Number of policies for policy areas by change in restrictiveness")
+```
+
+
+Border and land control policies are almost exclusively more restrictive. 95% (or 21 out of 22) are more restrictive. Furthermore, legal entry and stay are primarily less restrictive. 59% (or 65 out of 112) are less restrictive. 
+
+
+```{r Restrictiveness and change level, echo = FALSE}
+
+#Plot restrictiveness levels, color-coded by change level
+ggplot(data = demigUS1950) +
+  geom_bar(mapping = aes(x = change_restrict, fill = change_level), position = "dodge") +
+  scale_fill_manual(values=cbPalette) +
+  labs(
+    title = "Figure 2:\nRestrictiveness levels also correspond to different change levels",
+    subtitle = "Twice as many mid-level less restrictive changes than mid-level more restrictive changes.",
+    x = "Restrictiveness levels",
+    y = "Policy count",
+    fill = "Change level of policies"
+  )
+
+```
+
+
+Both change in restrictiveness and  change level determine  the overall magnitude of restrictiveness. Thus, this chart conveys the difficulty in assessing how the direction of overall restrictiveness in migration policy. This distribution suggests that since 1950, US migration policies have been primarily less restrictive, as mid-level changes, less restrictive policies dominate. 
+
+However, another complication in determining the magnitude of overall restrictiveness is the size of the target group that is affected. For example, a mid-level less restrictive change for family members of refugees may have less of an impact than a mid-level more restrictive change for all migrant workers.
+
+
+```{r Restrictiveness and target groups, echo = FALSE}
+
+#Create truncated labels for target groups for labeling clarity
+target_group_labels = rev(c("Specific categories", 
+                            "Refugees, asylum seekers, other vulnerable people", 
+                            "Irregular migrants", 
+                            "Investors, entreprenuers, business people", 
+                            "International students", 
+                            "Family members of refugees", 
+                            "Family members of high-skilled workers", 
+                            "Family members", 
+                            "Skilled/high-skilled workers", 
+                            "Low-skilled workers", 
+                            "All migrant workers", 
+                            "All migrants", 
+                            "All"))
+
+#Plot restrictiveness for different target groups
+ggplot(data = demigUS1950) +
+  geom_bar(mapping = aes(x = target_group, fill = change_restrict), width = .8) +
+  coord_flip() +
+  scale_fill_manual(values=cbPalette) +
+  labs(
+    title = "Figure 3:\nDifferent target groups experience \ndifferent restrictiveness levels",
+    x = "Target group",
+    y = "Policy count",
+    fill = "Change level of policies"
+  ) +
+  theme(legend.position = "bottom") +
+  scale_x_discrete(labels = target_group_labels)
+
+#Create contingency table for different levels of restrictiveness and target groups
+restrictiveness_by_target_group <- column_to_rownames(spread(tally(group_by(demigUS1950, target_group, change_restrict)), key = "change_restrict", value = n), var = "target_group")
+
+restrictiveness_by_target_group[is.na(restrictiveness_by_target_group)] <- 0
+
+kable(restrictiveness_by_target_group, caption = "Number of policies for target group by change in restrictiveness") %>%
+  column_spec(1, width = "5cm")
+```
+
+
+The distribution of restrictiveness varies per migrant group. The distributions for irregular migrants and low-skilled workers are predominantly more restrictive, while high-skilled workers have less restrictive policies. The distribution seems split more even for refugees and all migrants than for the three aforementioned groups. 60% (44 out of 175) of refugee policies are less restrictive.
+
+Another result is that refugees are the most regulated group, with migration policies targeting refugees outnumbering those targeting all migrants. 25% of all migration policies target refugees. 
+
+
+```{r Restrictiveness of policy areas through time, echo = FALSE}
+
+#Plot restrictiveness levels per year by policy area
+ggplot(data = demigUS1950) +
+  geom_bar(mapping =  aes(x =year, fill = change_restrict)) +
+  facet_wrap(~ pol_area, nrow = 5) +
+  theme(legend.position = "bottom") +
+  scale_fill_manual(values=cbPalette) +
+  labs(
+    title = "Figure 4:\nRestrictiveness of policy areas through time",
+    x = "Year",
+    y = "Policy count",
+    fill = "Restrictiveness of policy"
+  )
+```
+
+
+Figure 4 gives a visual representation of contemporary migration policy. Border and land control policies have been enacted steadily in throughout certain 5-year periods, while legal entry and stay policies look to be spurred once per decade and passed steadily otherwise. 
+
+# Creating a new variable: mag_score
+
+I created a new variable magnitude score that combines the variables change in restrictiveness and change level. First, I recoded each level of the two variables to be numeric as specified by the following two tables:
+
+```{r Create variable and key pt 1, echo = FALSE}
+
+#Recode change_level and change_restrict to be numeric
+demigUS1950$numeric_change_restrict <- as.numeric(demigUS1950$change_restrict)
+demigUS1950$numeric_change_level <- as.numeric(demigUS1950$change_level)
+
+#Re-code restrictiveness level to be -1, 0, 1 for more, no change, and less restrictive
+demigUS1950 <- dplyr::mutate(demigUS1950, numeric_change_restrict = 
+                               (numeric_change_restrict - 2))
+
+#Create keys for reference
+key_change_restrict <- tibble(numeric_change_restrictive = c('Less restrictive', 'No change', 'More restrictive'), number = c(-1, 0, 1))
+kable(key_change_restrict, caption = "Key for Change in Restrictiveness")
+
+key_change_level <- tibble(numeric_change_level = c('Fine-tune', 'Minor', 'Mid-level', 'Major'), number = c(1, 2, 3, 4))
+kable(key_change_level, caption = "Key for Change Level")
+
+```
+
+
+Then, to create the magnitude score, I multiplied together the values of numeric change level and numeric change in restrictiveness. As shown in the excerpt of the cleaned DEMIG data set below, a policy with -1 magnitude score refers to a less restrictive and fine-tuning change.
+
+
+```{r Create variable and key pt 2, echo = FALSE}
+
+#Create new variable, magnitude score -- the product of numeric change levels and restrictiveness
+demigUS1950 <- demigUS1950 %>% 
+  group_by(year) %>%
+  dplyr::mutate(mag_score = numeric_change_restrict * numeric_change_level)
+
+#View demigUS1950, seeing how mag_score combines change_restrict and change_level information
+kable(head(select(demigUS1950, year, mag_score, change_restrict, change_level)), caption = "Excerpt of the DEMIG data with magnitude score")
+
+#Plot magnitude scores distribution
+ggplot(data=dplyr::filter(demigUS1950)) +
+  geom_bar(mapping = aes(x = mag_score)) +
+  labs(
+    title = "Figure 5:\nDistribution of  magnitude scores",
+    x = "Magnitude score",
+    y = "Number of policies"
+  )
+```
+
+
+The most frequent migration policies are less restrictive mid-level changes. This is another representation of the Figure 2.
+
+# Analysis of magnitude scores
+
+```{r Magnitude score through time, echo = FALSE}
+
+#Plot magnitude scores through time
+ggplot(data=dplyr::filter(demigUS1950, year >=1950), mapping = aes(x = year, y = mag_score)) +
+  geom_smooth() +
+  geom_point(position = "jitter") +
+  geom_hline(yintercept=0, linetype = 3, color = "black") +
+  labs(
+    title = "Figure 6:\nMagnitude scores through time, all policies",
+    x = "Year",
+    y = "Magnitude score",
+    fill = "Policy area"
+  )
+
+```
+
+By plotting the magnitude scores per year, a general trend emerges of less restrictive policies from 1960 to 1990. After 1990, the average magnitude score becomes more positive, but whether or not policies are as a whole more restrictive is unclear. 
+
+
+Figure 1 conveyed that certain policy areas can be predominantly more or less restrictive. By dis-aggregating the trends per policy area, there is a more nuanced understanding of magnitude score trends: 
+
+```{r Disaggregate by policy area, echo = FALSE}
+
+#Exclude Exit-related policies in the new graph because there are too few of them to find meaningful results 
+
+#Plot magnitude scores through time, categorizing by policy area
+ggplot(data=dplyr::filter(demigUS1950, pol_area != "Exit"), mapping = aes(x = year, y = mag_score))+
+  geom_smooth(mapping = aes(color = pol_area, fill = pol_area)) +
+  geom_point(mapping = aes(color = pol_area), position = "jitter")  +
+  geom_hline(yintercept=0, linetype = 3, color = "black") +
+  labs(
+    title = "Figure 7:\nMagnitude scores through time, by policy area",
+    subtitle = "Excluding exit-related policies because there are too few of them",
+    x = "Year",
+    y = "Magnitude score",
+    color = "Policy area",
+    fill = "Policy area"
+  )
+
+#Same plot as before, but exclude integration-related policies because high variance
+ggplot(data=dplyr::filter(demigUS1950, pol_area != "Exit", pol_area != "Integration"), mapping = aes(x = year, y = mag_score))+
+  geom_smooth(mapping = aes(color = pol_area, fill = pol_area)) +
+  geom_point(mapping = aes(color = pol_area), position = "jitter") +
+  geom_hline(yintercept=0, linetype = 3, color = "black") +
+  labs(
+    title = "Figure 8:\nMagnitude scores through time, by policy area",
+    subtitle = "Excluding integration-related policies because of high variance or few policies",
+    x = "Year",
+    y = "Magnitude score",
+    color = "Policy area",
+    fill = "Policy area"
+  )
+  
+```
+
+
+Legal entry and stay policies account for the majority of negative magnitude scores, while border and land control policies account for the majority of positive magnitude scores. While migration policy as a whole looks to be less restrictive between 1960 and 1990, legal entry and stay policies are the main drivers behind that trend. Integration policies look to have a high-variability, cyclical trend.
+
+To extend on Figure 3, I plotted the distributions of magnitude score per target group. The target groups with interesting results were all migrants, high-skilled workers, and refugees.
+
+
+```{r Distribution of magnitude scores for target groups, echo = FALSE}
+
+#Plot distribution of magnitude scores, separated by different target groups
+ggplot(data=dplyr::filter(demigUS1950, pol_area != "Exit")) +
+  geom_bar(mapping = aes(x = mag_score)) +
+  facet_wrap(~ target_group, ncol = 3) +
+  labs(
+    title = "Figure 9:\nDistribution of magnitude scores for different target groups",
+    x = "Magnitude score",
+    y = "Number of policies"
+  )
+
+#Same plot as before, but examine refugees and high-skilled workers in particular
+ggplot(data=dplyr::filter(demigUS1950, pol_area != "Exit", target_group == "Skilled/high-skilled workers" | target_group == "Refugees, asylum seekers and other vulnerable people" | target_group == "All migrants"))+
+  geom_bar(mapping = aes(x = mag_score)) +
+  facet_wrap(~ target_group, ncol = 1) +
+  labs(
+    title = "Figure 10:\nDistribution of magnitude scores for selected target groups",
+    subtitle = "Policies for All migrants and Refugees looks to be bi-modal",
+    x = "Magnitude score",
+    y = "Number of policies"
+  )
+
+```
+
+
+The high-skilled workers distribution looks quite intuitive: the less restrictive policies towards high-skilled workers are greater in number. Refugee- and all migrants-related policies look to be sourced from two different groups as the distributions look bi-modal. 
+
+# Magnitude scores regarding refugees
+
+One finding from Figure 3 is that refugee-related migration policy accounts for 25% of all migration policies, the largest category. Thus, I conducted the same magnitude score-time plots but for refugee-targeting policy in particular.
+
+```{r Refugees particularly, echo = FALSE}
+
+#Exclude exit-related policies because too few
+demigUS1950_ref <- demigUS1950 %>%
+  dplyr::filter(pol_area != "Exit", target_group == "Refugees, asylum seekers and other vulnerable people")
+
+#Plot magnitude scores of refugee migration policy through time
+ggplot(data = demigUS1950_ref, mapping = aes(x = year, y = mag_score)) +
+  geom_smooth() +
+  geom_point(mapping = aes(color = pol_area), position = "jitter") +
+  geom_hline(yintercept = 0, linetype = 3, color = "black") +
+  labs(
+    title = "Figure 11:\nMagnitude scores of refugee migration policy has become more restrictive recently",
+    x = "Year",
+    y = "Magnitude score"
+  )
+
+#Same plot as before, disaggregate by policy area
+ggplot(data = demigUS1950_ref, mapping = aes(x = year, y = mag_score)) +
+  geom_smooth(mapping = aes(color = pol_area, fill= pol_area)) +
+  geom_point(mapping = aes(color = pol_area), position = "jitter") +
+  geom_hline(yintercept = 0, linetype = 3, color = "black") +
+  labs(
+    title = "Figure 12:\nMagnitude scores of refugee migration policy by policy area",
+    subtitle = "Legal entry and stay look to be driving the trend of more restrictive refugee policy",
+    x = "Year",
+    y = "Magnitude score"
+  )
+```
+
+
+Th trends shown here look similar to those in Figure 7 and Figure 8. Refugees face more restrictive measures than they did previously. This is driven by legal entry and stay policies, which have been historically less restrictive with moderate magnitude, although since 1995, policies have become increasingly more restrictive. There are too few integration policies for a meaningful interpretation. 
+
+# Univariate mixture modeling of magnitude score for refugee policy
+
+```{r Mixture model part 1, echo = FALSE}
+
+#Create table with only the magnitude scores for refugee migration policy
+refugee_mag_score <- demigUS1950 %>%
+  ungroup() %>%
+  dplyr::filter(target_group == "Refugees, asylum seekers and other vulnerable people") %>%
+  select(mag_score)
+
+#Run default model
+mod1 = Mclust(refugee_mag_score)
+
+#View results
+summary(mod1)
+
+#Plot BIC
+plot(mod1, what = "BIC")
+title("Figure 13: BIC for equal (E) and unequal (V) variance model")
+```
+
+
+The first model (Mclust model E) uses a univariate equal variance model that has seven components, dividing magnitude scores along their scores. As one would expect, this has the highest Bayesian Indicator Criteria (BIC), as indicated in the plot. However, a univariate model with unequal variances is maximized to a reasonably high BIC with two components, which matches the initial observation in Figure 10 of bimodality. A model with unequal variance is more realistic and has more meaningful implications. 
+
+```{r Mixture model part 2, echo = FALSE}
+#Run univariate, unequal variance model with 2 components
+mod2 = Mclust(refugee_mag_score, G = 2)
+
+#View results and parameters
+summary(mod2,parameters=TRUE)
+```
+
+The first cluster has a mean score of -3.12 and variance .13; the second cluster has a mean of 1.6 and a variance of 2.79. This suggests that refugee policy has two main sources: ardent supporters (cluster one) and non-supporters consisting of neutral bystanders to ardent opponents (cluster two). Sympathetic refugee policy tends to result in significant change at once with a magnitude score of -3. Non-sympathetic refugee policy has greater variance, including neutral changes and higher magnitude, more restrictive changes.
+
+# Conclusion
+
+Quantifying the impacts and trends of migration policy requires attention to the various dimensions of each policy; it's not so simple to chart magnitude change. There are three main takeaways from the initial descriptive results. First, different policy areas correspond to different levels of restrictiveness. Border control policies are overwhelmingly more restrictive (95% are more restrictive), while about two-thirds of legal entry policies are less restrictive. Next, less restrictive policies are dominated by mid-level changes, while more restrictive policies are more spread out with regards to change level. Finally, target groups matter in determining the aggregate impact of migration policies -- refugees are the most regulated target group, representing one quarter of total migration policies from 1950 to 2013. 
+
+Creating the variable magnitude score that combines change level and change in restrictiveness provides a more nuanced understanding of migration policy through time. Migration policy was less restrictive from 1960 to 1990. Beginning around 1980, magnitude score began to increase, but it is unclear if the average migration policy has been more restrictive (having a positive magnitude score) since then. Disaggregating by policy area provides more granular insight: legal entry and stay policies have historically been less restrictive and the main driver of the 1960 to 1990 less restrictive migration trend noted earlier. Border and land control policies, in contrast, have been historically more restrictive. Similar trends can be found when analyzing magnitude scores through time for refugee policy for legal entry and stay. 
+
+Examining magnitude score distribution per target group yields a bimodal distribution for target groups All Migrants and Refugees. Applying the univariate Gaussian finite mixture model results in two clusters of policies: one cluster of policies representing mid-level to major changes that increase legal rights of migrants, the average of which is mid-level less restrictive change (mean magnitude score of -3.6). The second cluster represents neutral to major changes that decrease the rights of migrants, the average of which is a more restrictive, minor-level change (mean magnitude score of 1.6).
+
+# Works Cited
+
+DEMIG (2015) DEMIG POLICY, version 1.3, Online Edition. Oxford: International Migration Institute, 
+  University of Oxford. www.migrationdeterminants.eu
+
+Scrucca L., Fop M., Murphy T. B. and Raftery A. E. (2016) mclust 5: clustering,
+  classification and density estimation using Gaussian finite mixture models The R Journal
+  8/1, pp. 205-233
+
