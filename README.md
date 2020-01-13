@@ -1,5 +1,2 @@
 # Exploratory data analysis of United States migration policy
-This exploratory data analysis uses the database [Determinants of Migration Policy (DEMIG)](https://www.migrationinstitute.org/data/demig-data/demig-c2c-data) compiled by the [International Migration Institute](https://www.migrationinstitute.org/). This analysis was conducted from July to August 2019 as part of a policy internship at the organization [Only Through Us](https://www.onlythroughus.org/)). 
-
-# Author
-Amber Lee
+This exploratory data analysis uses the database [Determinants of Migration Policy (DEMIG)](https://www.migrationinstitute.org/data/demig-data/demig-c2c-data) compiled by the [International Migration Institute](https://www.migrationinstitute.org/). This analysis was conducted from July to August 2019 as part of a policy internship at the organization [Only Through Us](https://www.onlythroughus.org/) (although I completed the documentation for this project on Github in Janaury 2020). This was an self-led project informed by [R for Data Science](https://r4ds.had.co.nz/) and [An Introduction to Statistical Learning](http://faculty.marshall.usc.edu/gareth-james/ISL/). This project is primarily interested by contemporary trends, so considered only US policies from 1950 onwards in the DEMIG data set.  
